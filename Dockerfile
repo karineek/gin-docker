@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pciutils \
     lshw \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------
@@ -25,7 +26,7 @@ RUN apt-get update && apt-get install -y \
 # ---------------------------------------------------------------
 RUN curl -s "https://get.sdkman.io" | bash
 
-# Use bash login shell to enable SDKMAN for subsequent RUN commands
+# Use bash login shell to enable SDKMAN in subsequent RUN commands
 SHELL ["/bin/bash", "-lc"]
 
 # Install Java, Gradle, Maven
@@ -47,17 +48,25 @@ RUN mkdir -p /opt/logs
 # ---------------------------------------------------------------
 # Install Ollama (log output)
 # ---------------------------------------------------------------
-#RUN curl -fsSL https://ollama.com/install.sh | tee /opt/logs/ollama_install.log | bash
+RUN curl -fsSL https://ollama.com/install.sh | tee /opt/logs/ollama_install.log | bash
 
 # ---------------------------------------------------------------
-# Start Ollama server temporarily during build to pull model
+# Clone gin-docker repo (for scripts, profiling data, notebook)
 # ---------------------------------------------------------------
-#RUN bash -lc "\
-#    ollama serve > /opt/logs/ollama_build_serve.log 2>&1 & \
-#    pid=\$!; sleep 5; \
-#    echo 'Pulling Gemma2:2b model...' && \
-#    ollama pull gemma2:2b > /opt/logs/gemma2_2b_download.log 2>&1; \
-#    kill \$pid; wait \$pid 2>/dev/null || true"
+RUN git clone https://github.com/domsob/gin-docker.git /opt/gin-docker
+
+# ---------------------------------------------------------------
+# Copy config (local), pull script and test script (from git)
+# ---------------------------------------------------------------
+COPY config.ini /opt/config.ini
+RUN cp /opt/gin-docker/pull_models.sh /opt/pull_models.sh && \
+    chmod +x /opt/pull_models.sh && \
+    cp /opt/gin-docker/test_ollama.py /opt/test_ollama.py
+
+# ---------------------------------------------------------------
+# Pull local models defined in config.ini during build
+# ---------------------------------------------------------------
+RUN bash /opt/pull_models.sh --build /opt/config.ini
 
 # ---------------------------------------------------------------
 # Clone repositories: GIN and JCodec
@@ -104,15 +113,9 @@ RUN sed -i '140a\
 </plugin>' /opt/commons-net/pom.xml
 
 # ---------------------------------------------------------------
-# Clone gin-docker repo to copy profiling data and notebook
+# Copy profiling data and notebook from gin-docker, then clean up
 # ---------------------------------------------------------------
-#RUN git clone https://github.com/domsob/gin-docker.git /opt/gin-docker && \
-#    cp /opt/gin-docker/profiling_data/jcodec.Profiler_output.csv /opt/jcodec/ && \
-#    cp /opt/gin-docker/gin_workflow.ipynb /opt/ && \
-#    rm -rf /opt/gin-docker
-    
-RUN git clone https://github.com/domsob/gin-docker.git /opt/gin-docker && \
-    cp /opt/gin-docker/profiling_data/jcodec.Profiler_output.csv /opt/jcodec/ && \
+RUN cp /opt/gin-docker/profiling_data/jcodec.Profiler_output.csv /opt/jcodec/ && \
     cp /opt/gin-docker/profiling_data/commons-net.Profiler_output.csv /opt/commons-net/ && \
     cp /opt/gin-docker/profiling_data/gson.Profiler_output.csv /opt/gson/ && \
     cp /opt/gin-docker/profiling_data/junit4.Profiler_output.csv /opt/junit4/ && \
@@ -178,7 +181,7 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install notebook
+    pip install notebook requests
 
 # ---------------------------------------------------------------
 # Expose Jupyter port
@@ -187,17 +190,16 @@ EXPOSE 8888
 WORKDIR /opt
 
 # ---------------------------------------------------------------
-# Start Ollama server and Jupyter Notebook
+# Start Ollama, pull new models, run test, then start Jupyter
 # ---------------------------------------------------------------
-#CMD bash -lc "\
-#    mkdir -p /opt/logs && \
-#    echo 'Starting Ollama server...' && \
-#    ollama serve > /opt/logs/ollama_serve.log 2>&1 & \
-#    sleep 5 && \
-#    echo 'Starting Jupyter Notebook...' && \
-#    jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.disable_check_xsrf=True --notebook-dir=/opt"
-    
 CMD bash -lc "\
     mkdir -p /opt/logs && \
+    echo 'Starting Ollama server...' && \
+    ollama serve > /opt/logs/ollama_serve.log 2>&1 & \
+    sleep 5 && \
+    echo 'Checking for new models to pull...' && \
+    bash /opt/pull_models.sh --runtime /opt/config.ini 2>&1 | tee /opt/logs/model_pull.log && \
+    echo 'Running Ollama test...' && \
+    python3 /opt/test_ollama.py 2>&1 | tee /opt/logs/ollama_test.log && \
     echo 'Starting Jupyter Notebook...' && \
     jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.disable_check_xsrf=True --notebook-dir=/opt"
