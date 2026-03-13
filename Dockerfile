@@ -125,6 +125,7 @@ RUN cp /opt/gin-docker/profiling_data/jcodec.Profiler_output.csv /opt/jcodec/ &&
     cp /opt/gin-docker/profiling_data/junit4.Profiler_output.csv /opt/junit4/ && \
     cp /opt/gin-docker/profiling_data/karate-core.Profiler_output.csv /opt/karate/ && \
     cp /opt/gin-docker/gin_workflow.ipynb /opt/ && \
+    cp /opt/gin-docker/gin_workflow.sh /opt/ && \
     rm -rf /opt/gin-docker
 
 # ---------------------------------------------------------------
@@ -190,7 +191,7 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install notebook requests
+    pip install notebook requests joblib litellm scikit-learn
 
 # ---------------------------------------------------------------
 # Expose Jupyter port

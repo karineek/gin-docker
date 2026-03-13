@@ -19,3 +19,9 @@ sudo chmod 666 /var/run/docker.sock
 docker run hello-world
  
 echo ">> To build image run: docker build -t dockerfuzzer ."
+sudo docker build --no-cache -t gin-builder .
+echo ">> Starting Ollama Server."
+sudo docker rm -f gin-builder 2>/dev/null || true
+sudo docker run -d --name gin-builder -p 8888:8888 gin-builder:latest 
+echo ">> Entering Docker container"
+sudo docker exec -it gin-builder bash
